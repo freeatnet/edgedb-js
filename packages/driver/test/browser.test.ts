@@ -76,6 +76,8 @@ import {
   createHttpClient,
   EdgeDBError
 } from "../src/index.browser";
+import {FetchConnection} from "../src/fetchConn";
+import {ConnectOptions} from "../src/baseClient";
 
 const brokenConnectOpts = JSON.parse(
   process.env._JEST_EDGEDB_CONNECT_CONFIG || ""
@@ -101,6 +103,61 @@ if (nodeVersion >= 15) {
     await expect(client.ensureConnected()).rejects.toThrowError(
       /no connection options specified/
     );
+  });
+
+  describe("tlsSecurty handling", () => {
+    const BASE_OPTS: Partial<ConnectOptions> = {
+      host: "some.host.tld",
+      port: 5656,
+      database: "sample_database"
+    };
+
+    test("defaults to HTTPS when tlsSecurity is undefined", async () => {
+      if (version!.major < 2) return;
+      const client = createHttpClient(BASE_OPTS);
+
+      const expectedAddr = `https://${BASE_OPTS.host}:${BASE_OPTS.port}/db/${BASE_OPTS.database}`;
+      const observedAddr = (
+        (await client["pool"].getNewConnection()) as FetchConnection
+      )["addr"];
+
+      expect(observedAddr).toBe(expectedAddr);
+      await expect(client.ensureConnected()).resolves.toBe(client);
+    });
+
+    test("uses HTTP when tlsSecurity is 'insecure'", async () => {
+      if (version!.major < 2) return;
+      const client = createHttpClient({
+        ...BASE_OPTS,
+        tlsSecurity: "insecure"
+      });
+
+      const expectedAddr = `http://${BASE_OPTS.host}:${BASE_OPTS.port}/db/${BASE_OPTS.database}`;
+      const observedAddr = (
+        (await client["pool"].getNewConnection()) as FetchConnection
+      )["addr"];
+
+      expect(observedAddr).toBe(expectedAddr);
+      await expect(client.ensureConnected()).resolves.toBe(client);
+    });
+
+    for (const tlsSecurity of ["strict", "no_host_verification"] as const) {
+      test(`uses HTTPS when tlsSecurity is '${tlsSecurity}'`, async () => {
+        if (version!.major < 2) return;
+        const client = createHttpClient({
+          ...BASE_OPTS,
+          tlsSecurity
+        });
+
+        const expectedAddr = `https://${BASE_OPTS.host}:${BASE_OPTS.port}/db/${BASE_OPTS.database}`;
+        const observedAddr = (
+          (await client["pool"].getNewConnection()) as FetchConnection
+        )["addr"];
+
+        expect(observedAddr).toBe(expectedAddr);
+        await expect(client.ensureConnected()).resolves.toBe(client);
+      });
+    }
   });
 
   test("basic queries", async () => {
